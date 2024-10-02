@@ -2,6 +2,8 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use reqwest::blocking::get;
+use serde_json::Value;
 
 // Struct representing the data in the gitSource.json file
 #[derive(Serialize, Deserialize, Debug)]
@@ -67,6 +69,18 @@ fn read_git_source_file() -> Result<GitSource, Box<dyn std::error::Error>> {
     Ok(git_source)
 }
 
+// Function to fetch the version from the given URL
+fn fetch_version_from_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
+    // Send a GET request to the URL
+    let response = get(url)?.text()?;
+
+    // Parse the JSON response
+    let git_source: GitSource = serde_json::from_str(&response)?;
+
+    // Return the version
+    Ok(git_source.version)
+}
+
 fn main() {
     // let username = "archways404";
     // let repo = "HDAVAIL";
@@ -101,6 +115,16 @@ fn main() {
         }
         Err(e) => {
             eprintln!("Failed to read gitSource.json: {}", e);
+        }
+    }
+
+    // Fetch the version from the URL and print it
+    match fetch_version_from_url(&url) {
+        Ok(version) => {
+            println!("Version fetched from URL: {}", version);
+        }
+        Err(e) => {
+            eprintln!("Failed to fetch version: {}", e);
         }
     }
 }
