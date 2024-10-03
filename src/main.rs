@@ -3,128 +3,155 @@ use std::io::{self, Read, Write};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use reqwest::blocking::get;
-use serde_json::Value;
+use std::process::Command;
 
-// Struct representing the data in the gitSource.json file
 #[derive(Serialize, Deserialize, Debug)]
 struct GitSource {
+    version: String,
+    username: String,
+    repo: String,
+    branch: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct RemoteGitSource {
     version: String,
 }
 
 // Function to read user input
 fn read_input(prompt: &str) -> String {
     print!("{}", prompt);
-    io::stdout().flush().unwrap(); // Flush stdout to display prompt immediately
+    io::stdout().flush().unwrap();
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
-    input.trim().to_string() // Remove any surrounding whitespace
+    input.trim().to_string()
 }
 
 fn create_github_url(username: &str, repo: &str, branch: &str) -> String {
-    let url = format!(
+    format!(
         "https://raw.githubusercontent.com/{}/{}/refs/heads/{}/gitSource.json",
         username, repo, branch
-    );
-    url
+    )
 }
 
-// Function to create and write the gitSource.json file
-fn create_git_source_file(version: &str) -> std::io::Result<()> {
+fn create_git_source_file(version: &str, username: &str, repo: &str, branch: &str) -> std::io::Result<()> {
     let git_source = GitSource {
         version: version.to_string(),
+        username: username.to_string(),
+        repo: repo.to_string(),
+        branch: branch.to_string(),
     };
 
-    // Convert the struct to a JSON string
     let json_data = serde_json::to_string_pretty(&git_source).unwrap();
-
-    // Define the file path (in this case, the root directory)
     let path = Path::new("gitSource.json");
-
-    // Create the file
     let mut file = File::create(path)?;
-
-    // Write the JSON data to the file
     file.write_all(json_data.as_bytes())?;
 
-    println!("gitSource.json file created with version: {}", version);
-    
+    println!("gitSource.json file created with version: {}, username: {}, repo: {}, branch: {}", 
+             version, username, repo, branch);
+
     Ok(())
 }
 
-// Function to read the gitSource.json file and deserialize it into a GitSource struct
 fn read_git_source_file() -> Result<GitSource, Box<dyn std::error::Error>> {
-    // Define the path to the gitSource.json file
     let path = Path::new("gitSource.json");
-
-    // Open the file
     let mut file = File::open(path)?;
-
-    // Read the contents of the file into a string
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-
-    // Deserialize the JSON content into the GitSource struct
     let git_source: GitSource = serde_json::from_str(&contents)?;
-
     Ok(git_source)
 }
 
-// Function to fetch the version from the given URL
 fn fetch_version_from_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    // Send a GET request to the URL
     let response = get(url)?.text()?;
+    let remote_source: RemoteGitSource = serde_json::from_str(&response)?;
+    Ok(remote_source.version)
+}
 
-    // Parse the JSON response
-    let git_source: GitSource = serde_json::from_str(&response)?;
+fn compare_versions(local_version: &str, remote_version: &str) -> std::cmp::Ordering {
+    let local_parts: Vec<&str> = local_version.split('.').collect();
+    let remote_parts: Vec<&str> = remote_version.split('.').collect();
 
-    // Return the version
-    Ok(git_source.version)
+    for (local_part, remote_part) in local_parts.iter().zip(remote_parts.iter()) {
+        let local_number = local_part.parse::<u32>().unwrap_or(0);
+        let remote_number = remote_part.parse::<u32>().unwrap_or(0);
+        
+        match local_number.cmp(&remote_number) {
+            std::cmp::Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+
+    std::cmp::Ordering::Equal
+}
+
+fn run_git_pull() -> std::io::Result<()> {
+    println!("Running 'git pull' to sync with the remote repository...");
+    let output = Command::new("git")
+        .arg("pull")
+        .output()?;
+
+    if output.status.success() {
+        println!("Git pull succeeded:\n{}", String::from_utf8_lossy(&output.stdout));
+    } else {
+        eprintln!("Git pull failed:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    Ok(())
 }
 
 fn main() {
-    // let username = "archways404";
-    // let repo = "HDAVAIL";
-    // let branch = "master";
-    // let version = "1.0.2";
-    
-    // let url = create_github_url(username, repo, branch);
-    // println!("Generated URL: {}", url);
-
-    // Get user input
-    let username = read_input("Enter the GitHub username: ");
-    let repo = read_input("Enter the repository name: ");
-    let branch = read_input("Enter the branch name: ");
-    let version = read_input("Enter the version: ");
-
-    // Create the gitSource.json file in the root
-    if let Err(e) = create_git_source_file(&version) {
-        eprintln!("Failed to create gitSource.json: {}", e);
-    }
-
-    // Generate the URL
-    let url = create_github_url(&username, &repo, &branch);
-
-    // Output the result
-    println!("Generated URL: {}", url);
-
-    // Attempt to read and print the gitSource.json file
-    match read_git_source_file() {
+    let git_source = match read_git_source_file() {
         Ok(git_source) => {
             println!("Successfully read gitSource.json:");
             println!("{:?}", git_source);
+            git_source
         }
-        Err(e) => {
-            eprintln!("Failed to read gitSource.json: {}", e);
+        Err(_) => {
+            println!("No valid gitSource.json found, asking for user input...");
+            let username = read_input("Enter the GitHub username: ");
+            let repo = read_input("Enter the repository name: ");
+            let branch = read_input("Enter the branch name: ");
+            let version = read_input("Enter the version: ");
+            if let Err(e) = create_git_source_file(&version, &username, &repo, &branch) {
+                eprintln!("Failed to create gitSource.json: {}", e);
+                return;
+            }
+            GitSource {
+                version,
+                username,
+                repo,
+                branch,
+            }
         }
-    }
+    };
 
-    // Fetch the version from the URL and print it
-    match fetch_version_from_url(&url) {
+    let url = create_github_url(&git_source.username, &git_source.repo, &git_source.branch);
+    println!("Generated URL: {}", url);
+
+    let remote_version = match fetch_version_from_url(&url) {
         Ok(version) => {
             println!("Version fetched from URL: {}", version);
+            version
         }
         Err(e) => {
             eprintln!("Failed to fetch version: {}", e);
+            return;
+        }
+    };
+
+    match compare_versions(&git_source.version, &remote_version) {
+        std::cmp::Ordering::Less => {
+            println!("The remote version ({}) is newer than the local version ({}).", remote_version, git_source.version);
+            if let Err(e) = run_git_pull() {
+                eprintln!("Failed to run 'git pull': {}", e);
+            }
+        }
+        std::cmp::Ordering::Greater => {
+            println!("The local version ({}) is newer than the remote version ({}).", git_source.version, remote_version);
+        }
+        std::cmp::Ordering::Equal => {
+            println!("The local version and remote version are the same ({}).", git_source.version);
         }
     }
 }
