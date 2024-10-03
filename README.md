@@ -10,6 +10,11 @@ GitSource is a Rust CLI tool designed to manage versioning and synchronization o
 - **`update-major`**: Increments the major version number (e.g., from `0.7.2` to `1.0.0`).
 - **`fetch`**: Compares the local version with the remote version fetched from GitHub, and runs `git fetch` if the remote version is newer.
 
+## Quick Install
+```bash
+cargo install gitSource@0.0.1
+```
+
 ## Usage
 
 ### 1. Initialize gitSource.json
@@ -73,7 +78,7 @@ cargo install gitSource@0.0.1
 gs [argument]
 ```
 
-If you wish to manually build the program:
+## If you wish to manually build the program:
 
 1. Clone the repository:
 ```bash
